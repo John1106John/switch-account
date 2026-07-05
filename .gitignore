@@ -1,0 +1,4 @@
+# 絕不提交任何帳號憑證（執行期資料，不屬於 skill 本體）
+.account-creds/
+*credentials*.json
+.credentials.json
