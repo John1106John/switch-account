@@ -1,20 +1,22 @@
 ﻿<#
 .SYNOPSIS
-  switch-account — 在共用同一個 ~/.claude 的前提下，只換 .credentials.json 來切換 Claude 帳號。
+  switch-account — switch Claude accounts by swapping only .credentials.json, while sharing one ~/.claude.
 
 .DESCRIPTION
-  對話、設定、skill 全部共用同一個 ~/.claude；切換帳號只覆蓋 .credentials.json（身份/額度）。
-  倉庫集中在 <root>/.account-creds/，數字檔名（1.json、2.json…），current 檔記錄當前 active 編號。
-  切換一律「離場存檔 → 進場覆蓋」以維持不變式：.credentials.json 永遠等於 current 所指那號的最新內容。
+  Conversations, settings, and skills all share one ~/.claude; switching an account only overwrites
+  .credentials.json (identity/quota). Credential copies live in <root>/.account-creds/ as numbered
+  files (1.json, 2.json...); a `current` file records the active number.
+  Every switch does "save-out -> apply-in" to keep the invariant: .credentials.json always equals the
+  latest content of the number that `current` points to.
 
 .USAGE
-  switch-account.ps1            # 選單：列出帳號，選一個切換
-  switch-account.ps1 2          # 直接切到 2 號
-  switch-account.ps1 capture    # 把當前 .credentials.json 登記成下一個空編號
-  switch-account.ps1 list       # 列出倉庫與當前 active
-  switch-account.ps1 watch ...  # 包裝 claude，撞 rate limit 時自動輪替下一個帳號（CLI 專用）
+  switch-account.ps1            # menu: list accounts, pick one to switch
+  switch-account.ps1 2          # switch straight to account 2
+  switch-account.ps1 capture    # file the current .credentials.json as the next free number
+  switch-account.ps1 list       # list the vault and the current active account
+  switch-account.ps1 watch ...  # wrap claude; on rate limit, auto-rotate to another account (CLI only)
 
-  可用 $env:SA_CLAUDE_DIR 覆寫根目錄（預設 ~/.claude），供測試指向暫存目錄。
+  Override the root dir with $env:SA_CLAUDE_DIR (default ~/.claude); tests point it at a temp dir.
 #>
 
 param(
@@ -27,7 +29,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ── 路徑 ────────────────────────────────────────────────────────────────────
+# ── Paths ────────────────────────────────────────────────────────────────────
 function Get-Root {
   if ($env:SA_CLAUDE_DIR) { return $env:SA_CLAUDE_DIR }
   return (Join-Path $HOME '.claude')
@@ -38,7 +40,7 @@ function Get-CurrentFile { return (Join-Path (Get-CredsDir) 'current') }
 function Get-AccountFile([int]$n) { return (Join-Path (Get-CredsDir) "$n.json") }
 function Get-NamesFile { return (Join-Path (Get-CredsDir) 'names.json') }
 
-# ── 狀態讀寫 ────────────────────────────────────────────────────────────────
+# ── State I/O ────────────────────────────────────────────────────────────────
 function Get-Current {
   $f = Get-CurrentFile
   if (-not (Test-Path $f)) { return $null }
@@ -57,7 +59,7 @@ function Set-Current([int]$n) {
   [IO.File]::WriteAllText((Get-CurrentFile), "$n")
 }
 
-# 回傳倉庫中所有帳號編號（升冪）
+# Return all account numbers in the vault (ascending)
 function Get-AccountNumbers {
   $dir = Get-CredsDir
   if (-not (Test-Path $dir)) { return @() }
@@ -68,8 +70,8 @@ function Get-AccountNumbers {
   return ($nums | Sort-Object)
 }
 
-# ── 名稱（編號 → 名稱對應）─────────────────────────────────────────────────
-# 存於 names.json，以 UTF-8 讀寫確保中文名稱正確（避免 PS 5.1 ANSI 雷）。
+# ── Names (number -> label mapping) ──────────────────────────────────────────
+# Stored in names.json, read/written as UTF-8 so non-ASCII names survive (avoids the PS 5.1 ANSI pitfall).
 function Get-Names {
   $f = Get-NamesFile
   $h = @{}
@@ -95,8 +97,8 @@ function Get-Name([int]$n) {
   return ''
 }
 
-# ── 驗證 ────────────────────────────────────────────────────────────────────
-# 合法 credentials = 能 parse JSON 且含 claudeAiOauth.accessToken
+# ── Validation ───────────────────────────────────────────────────────────────
+# Valid credentials = parses as JSON and has claudeAiOauth.accessToken
 function Test-CredentialsFile([string]$path) {
   if (-not (Test-Path $path)) { return $false }
   try {
@@ -105,56 +107,56 @@ function Test-CredentialsFile([string]$path) {
   } catch { return $false }
 }
 
-# ── 核心狀態機 ──────────────────────────────────────────────────────────────
-# 離場存檔：把現役活檔存回 current 所指的號（保留被 claude 背景刷新過的最新 token）
+# ── Core state machine ───────────────────────────────────────────────────────
+# Save-out: copy the live file back to the number `current` points to (preserves tokens Claude refreshed in the background)
 function Save-ActiveBack {
   $cur = Get-Current
-  if ($null -eq $cur) { return }              # current 未知 → 跳過（不知道存回哪號）
+  if ($null -eq $cur) { return }              # current unknown -> skip (don't know which number to save back to)
   $active = Get-ActiveFile
-  if (-not (Test-CredentialsFile $active)) { return }  # 活檔不合法 → 不覆蓋倉庫
+  if (-not (Test-CredentialsFile $active)) { return }  # live file invalid -> don't overwrite the vault
   Initialize-CredsDir
   Copy-Item $active (Get-AccountFile $cur) -Force
 }
 
-# 進場覆蓋：把 N.json 覆蓋活檔，並更新 current
+# Apply-in: overwrite the live file with N.json and update current
 function Set-ActiveAccount([int]$n) {
   Copy-Item (Get-AccountFile $n) (Get-ActiveFile) -Force
   Set-Current $n
 }
 
-# 完整切換：離場存檔 → 進場覆蓋
+# Full switch: save-out -> apply-in
 function Invoke-Switch([int]$n, [switch]$Quiet) {
   $src = Get-AccountFile $n
   if (-not (Test-Path $src)) {
     $avail = (Get-AccountNumbers) -join ', '
-    Write-Host "❌ 帳號 ($n) 不存在。可用編號：$(if ($avail) { $avail } else { '（倉庫是空的，先 capture）' })"
+    Write-Host "X Account ($n) not found. Available: $(if ($avail) { $avail } else { '(vault is empty; run capture first)' })"
     return $false
   }
   if (-not (Test-CredentialsFile $src)) {
-    Write-Host "❌ $n.json 不是合法 credentials，已中止（不覆蓋活檔）。"
+    Write-Host "X $n.json is not valid credentials; aborted (live file untouched)."
     return $false
   }
   if ($null -eq (Get-Current)) {
-    Write-Host "⚠ current 未知，跳過離場存檔——前一帳號若剛被刷新過的 token 可能遺失，必要時重登。"
+    Write-Host "! current unknown; skipping save-out - the previous account's freshly refreshed token may be lost, re-login if needed."
   }
   Save-ActiveBack
   Set-ActiveAccount $n
   if (-not $Quiet) {
-    Write-Host "✅ 已切到帳號 ($n)。"
-    Write-Host "   VSCode 插件請 Reload Window（或重開對話）才生效；CLI 下次啟動即生效。"
+    Write-Host "OK Switched to account ($n)."
+    Write-Host "   VS Code extension: Reload Window (or reopen the chat) to take effect; CLI picks it up on next launch."
   }
   return $true
 }
 
-# 登記：把當前活檔存成下一個空編號（max+1；空倉庫為 1）。可選帶名稱。
+# Capture: file the live file as the next free number (max+1; 1 for an empty vault). Optional name.
 function Invoke-Capture([string]$name = '') {
   $active = Get-ActiveFile
   if (-not (Test-Path $active)) {
-    Write-Host "❌ 目前沒有登入（找不到 $active）。先用某帳號 /login 再 capture。"
+    Write-Host "X Not logged in (no $active). /login with an account first, then capture."
     return
   }
   if (-not (Test-CredentialsFile $active)) {
-    Write-Host "❌ 當前 .credentials.json 不是合法 credentials，已中止。"
+    Write-Host "X Current .credentials.json is not valid credentials; aborted."
     return
   }
   $nums = Get-AccountNumbers
@@ -163,47 +165,47 @@ function Invoke-Capture([string]$name = '') {
   Copy-Item $active (Get-AccountFile $next) -Force
   Set-Current $next
   if ($name) { Set-Name $next $name }
-  $suffix = if ($name) { " 「$name」" } else { '' }
-  Write-Host "✅ 已把當前帳號登記為 ($next)$suffix，並設為 current。"
+  $suffix = if ($name) { " '$name'" } else { '' }
+  Write-Host "OK Registered current account as ($next)$suffix and set as current."
 }
 
-# 事後命名/改名：sa name <編號> <名稱>
+# Name/rename after the fact: sa name <number> <name>
 function Invoke-SetName([string[]]$rest) {
-  if (-not $rest -or $rest.Count -lt 2) { Write-Host "用法：sa name <編號> <名稱>"; return }
-  if ($rest[0] -notmatch '^\d+$') { Write-Host "編號需為數字。"; return }
+  if (-not $rest -or $rest.Count -lt 2) { Write-Host "Usage: sa name <number> <name>"; return }
+  if ($rest[0] -notmatch '^\d+$') { Write-Host "Number must be numeric."; return }
   $n = [int]$rest[0]
-  if (-not (Test-Path (Get-AccountFile $n))) { Write-Host "❌ 帳號 ($n) 不存在。"; return }
+  if (-not (Test-Path (Get-AccountFile $n))) { Write-Host "X Account ($n) not found."; return }
   $name = ($rest[1..($rest.Count - 1)] -join ' ')
   Set-Name $n $name
-  Write-Host "✅ 帳號 ($n) 命名為「$name」。"
+  Write-Host "OK Account ($n) named '$name'."
 }
 
-# 列出倉庫
+# List the vault
 function Invoke-List {
   $nums = Get-AccountNumbers
-  if ($nums.Count -eq 0) { Write-Host "（倉庫是空的，先用 capture 登記帳號）"; return }
+  if ($nums.Count -eq 0) { Write-Host "(vault is empty; register an account with capture first)"; return }
   $cur = Get-Current
   $names = Get-Names
-  Write-Host "帳號倉庫（$(Get-CredsDir)）："
+  Write-Host "Account vault ($(Get-CredsDir)):"
   foreach ($n in $nums) {
     $nm = if ($names.ContainsKey("$n")) { " " + $names["$n"] } else { '' }
-    $mark = if ($n -eq $cur) { '  ← current' } else { '' }
+    $mark = if ($n -eq $cur) { '  <- current' } else { '' }
     Write-Host ("  [{0}]{1}{2}" -f $n, $nm, $mark)
   }
 }
 
-# 選單：列出 → 讀輸入 → 切換
+# Menu: list -> read input -> switch
 function Invoke-Menu {
   $nums = Get-AccountNumbers
-  if ($nums.Count -eq 0) { Write-Host "（倉庫是空的，先用 capture 登記帳號）"; return }
+  if ($nums.Count -eq 0) { Write-Host "(vault is empty; register an account with capture first)"; return }
   Invoke-List
-  $ans = (Read-Host "要切到哪一號？（Enter 取消）").Trim()
+  $ans = (Read-Host "Switch to which number? (Enter to cancel)").Trim()
   if (-not $ans) { return }
-  if ($ans -notmatch '^\d+$') { Write-Host "請輸入數字編號。"; return }
+  if ($ans -notmatch '^\d+$') { Write-Host "Please enter a numeric account number."; return }
   [void](Invoke-Switch ([int]$ans))
 }
 
-# 下一號（wrap around）：current 之後的下一個存在編號，繞回開頭
+# Next number (wrap around): the next existing number after current, wrapping to the start
 function Get-NextNumber([int]$cur) {
   $nums = Get-AccountNumbers
   if ($nums.Count -eq 0) { return $null }
@@ -212,9 +214,9 @@ function Get-NextNumber([int]$cur) {
   return $nums[0]
 }
 
-# ── Usage 儀表板 ─────────────────────────────────────────────────────────────
-# 用每個帳號自己的 OAuth token 查 Anthropic 的 usage/profile。
-# 注意：這是 Claude Code 內部用的非公開端點，Anthropic 若變更可能失效。
+# ── Usage dashboard ──────────────────────────────────────────────────────────
+# Query Anthropic usage/profile with each account's own OAuth token.
+# Note: this is Claude Code's internal non-public endpoint; may break if Anthropic changes it.
 $ApiBase = 'https://api.anthropic.com'
 
 function Get-AccountToken([int]$n) {
@@ -233,23 +235,23 @@ function Invoke-OAuthApi([string]$token, [string]$path) {
 }
 
 function Format-ResetTime([string]$iso) {
-  if (-not $iso) { return '—' }
+  if (-not $iso) { return '-' }
   try { return ([datetimeoffset]$iso).LocalDateTime.ToString('MM/dd HH:mm') } catch { return $iso }
 }
 
-# sa status：列出所有帳號的即時 usage
+# sa status: list live usage for every account
 function Invoke-Status {
   $nums = Get-AccountNumbers
-  if ($nums.Count -eq 0) { Write-Host "（倉庫是空的，先用 capture 登記帳號）"; return }
+  if ($nums.Count -eq 0) { Write-Host "(vault is empty; register an account with capture first)"; return }
   $cur = Get-Current
   $names = Get-Names
   foreach ($n in $nums) {
     $tok = Get-AccountToken $n
-    $nm = if ($names.ContainsKey("$n")) { $names["$n"] } else { '(未命名)' }
-    $tag = if ($n -eq $cur) { ' ← current' } else { '' }
+    $nm = if ($names.ContainsKey("$n")) { $names["$n"] } else { '(unnamed)' }
+    $tag = if ($n -eq $cur) { ' <- current' } else { '' }
     Write-Host ""
     Write-Host "[$n] $nm$tag" -ForegroundColor Cyan
-    if (-not $tok) { Write-Host "    (無法讀取 token)"; continue }
+    if (-not $tok) { Write-Host "    (cannot read token)"; continue }
     try {
       $u = Invoke-OAuthApi $tok '/api/oauth/usage'
       $sess = [int]$u.five_hour.utilization
@@ -257,20 +259,20 @@ function Invoke-Status {
       $email = ''
       try { $email = (Invoke-OAuthApi $tok '/api/oauth/profile').account.email } catch {}
       if ($email) { Write-Host "    $email" }
-      Write-Host ("    Session {0}%（重置 {1}）   Weekly {2}%（重置 {3}）" -f `
+      Write-Host ("    Session {0}% (resets {1})   Weekly {2}% (resets {3})" -f `
         $sess, (Format-ResetTime $u.five_hour.resets_at), $week, (Format-ResetTime $u.seven_day.resets_at))
     } catch {
       $code = $null; try { $code = $_.Exception.Response.StatusCode.value__ } catch {}
-      Write-Host "    ⚠ 查詢失敗（HTTP $code）——token 可能過期，用該帳號重登後 sa capture 更新。"
+      Write-Host "    ! Query failed (HTTP $code) - token may be expired; re-login with that account and sa capture to refresh."
     }
   }
   Write-Host ""
 }
 
-# ── 自動輪替（CLI 專用）──────────────────────────────────────────────────────
+# ── Auto-rotation (CLI only) ─────────────────────────────────────────────────
 $RateLimitPattern = 'rate.?limit|too many requests|429|usage.?limit|plan limit|over_capacity'
 
-# 從 <root>/projects 下最近修改的 session jsonl 尾端偵測 rate limit
+# Detect rate limit from the tail of the most recently modified session jsonl under <root>/projects
 function Test-RateLimited {
   $projects = Join-Path (Get-Root) 'projects'
   if (-not (Test-Path $projects)) { return $false }
@@ -281,8 +283,9 @@ function Test-RateLimited {
   return [bool]($tail -match $RateLimitPattern)
 }
 
-# 從所有帳號（排除 exclude）挑「最有額度」的：session/weekly 皆未達上限者中 session 用量最低。
-# 回傳 @{ Best = 編號或 $null; AnyQueried = 是否至少成功查到一個帳號 }。
+# Pick the account with the most quota (excluding `exclude`): among those below both session/weekly
+# limits, the one with the lowest session usage.
+# Returns @{ Best = number or $null; AnyQueried = whether at least one account was queried successfully }.
 function Get-BestAccount([int]$exclude) {
   $best = $null; $bestUtil = [double]999; $anyQueried = $false
   foreach ($n in Get-AccountNumbers) {
@@ -294,7 +297,7 @@ function Get-BestAccount([int]$exclude) {
       $anyQueried = $true
       $s = [double]$u.five_hour.utilization
       $w = [double]$u.seven_day.utilization
-      if ($s -ge 100 -or $w -ge 100) { continue }   # 已爆，跳過
+      if ($s -ge 100 -or $w -ge 100) { continue }   # maxed out, skip
       if ($s -lt $bestUtil) { $bestUtil = $s; $best = $n }
     } catch { continue }
   }
@@ -307,44 +310,44 @@ function Invoke-Watch([string[]]$claudeArgs) {
   while ($true) {
     $runArgs = @()
     if ($claudeArgs) { $runArgs += $claudeArgs }
-    if (-not $first) { $runArgs = @('--continue') + $runArgs }  # 切帳號後接續同一場對話
+    if (-not $first) { $runArgs = @('--continue') + $runArgs }  # resume the same conversation after switching
 
     & claude @runArgs
     $code = $LASTEXITCODE
     $first = $false
 
     if ($code -eq 0) { exit 0 }
-    # PowerShell 沒有標準 130；Ctrl-C 通常讓子程序自行結束，這裡只對 rate limit 動作
+    # PowerShell has no standard 130; Ctrl-C usually lets the child exit on its own - only act on rate limit here
     if (-not (Test-RateLimited)) { exit $code }
 
     $cur = Get-Current
-    if ($null -eq $cur) { Write-Host "⚡ 撞到 rate limit，但 current 未知，無法自動輪替。用 list/switch 手動處理。"; exit $code }
+    if ($null -eq $cur) { Write-Host "! Hit rate limit, but current is unknown; cannot auto-rotate. Use list/switch manually."; exit $code }
     $tried[$cur] = $true
 
-    # 優先挑「最有額度」的帳號；usage API 全查不到時退回順序輪替。
+    # Prefer the account with the most quota; fall back to sequential rotation if the usage API is unreachable.
     $sel = Get-BestAccount $cur
     if ($sel.Best) {
       $next = $sel.Best
     } elseif ($sel.AnyQueried) {
       Write-Host ""
-      Write-Host "⚡ 所有帳號額度都爆了，休息一下吧。"
+      Write-Host "! All accounts are maxed out. Time for a break."
       exit $code
     } else {
       $next = Get-NextNumber $cur
       if ($null -eq $next -or $tried.ContainsKey($next)) {
         Write-Host ""
-        Write-Host "⚡ 找不到可用帳號（usage 查詢失敗且已輪過一圈）。"
+        Write-Host "! No usable account (usage query failed and rotated a full loop)."
         exit $code
       }
     }
     Write-Host ""
-    Write-Host "⚡ 帳號 ($cur) 撞到 rate limit → 自動切到最有額度的 ($next) 接續…"
+    Write-Host "! Account ($cur) hit rate limit -> auto-switching to ($next) with the most quota..."
     if (-not (Invoke-Switch $next -Quiet)) { exit $code }
   }
 }
 
-# ── 分派 ────────────────────────────────────────────────────────────────────
-# 被 dot-source（. switch-account.ps1）時 InvocationName 為 '.'，此時只定義函式供測試，不執行分派。
+# ── Dispatch ─────────────────────────────────────────────────────────────────
+# When dot-sourced (. switch-account.ps1) InvocationName is '.'; only define functions for tests, don't dispatch.
 if ($MyInvocation.InvocationName -ne '.') {
   switch -Regex ($Command) {
     '^\d+$'      { [void](Invoke-Switch ([int]$Command)); break }
@@ -355,8 +358,8 @@ if ($MyInvocation.InvocationName -ne '.') {
     '^watch$'    { Invoke-Watch $Rest; break }
     '^$'         { Invoke-Menu; break }
     default {
-      Write-Host "未知指令：$Command"
-      Write-Host "用法：switch-account [<編號> | capture [名稱] | name <編號> <名稱> | list | status | watch ...]（無參數=選單）"
+      Write-Host "Unknown command: $Command"
+      Write-Host "Usage: switch-account [<number> | capture [name] | name <number> <name> | list | status | watch ...] (no args = menu)"
     }
   }
 }

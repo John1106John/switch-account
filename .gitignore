@@ -1,4 +1,4 @@
-# 絕不提交任何帳號憑證（執行期資料，不屬於 skill 本體）
+# Never commit account credentials (runtime data, not part of the skill itself)
 .account-creds/
 *credentials*.json
 .credentials.json
