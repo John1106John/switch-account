@@ -40,6 +40,7 @@ sa list           # list the vault, names, and the current active account
 sa status         # dashboard: live usage per account (session% / weekly% / reset time / email)
 sa capture [name] # file the current .credentials.json as the next free number, optionally named
 sa name 1 work    # name/rename an account after the fact
+sa remove 2       # remove account 2 from the vault (asks to confirm)
 sa watch [args]   # CLI only: wrap claude; on rate limit auto-switch to the account with the most quota and --continue
 ```
 

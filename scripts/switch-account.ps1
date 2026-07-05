@@ -180,6 +180,34 @@ function Invoke-SetName([string[]]$rest) {
   Write-Host "OK Account ($n) named '$name'."
 }
 
+# Core removal: delete N.json, drop its name, clear current if it pointed here. Returns $true/$false.
+function Remove-Account([int]$n) {
+  $f = Get-AccountFile $n
+  if (-not (Test-Path $f)) { Write-Host "X Account ($n) not found."; return $false }
+  Remove-Item $f -Force
+  $h = Get-Names
+  if ($h.ContainsKey("$n")) { $h.Remove("$n"); ($h | ConvertTo-Json) | Set-Content (Get-NamesFile) -Encoding UTF8 }
+  if ((Get-Current) -eq $n) {
+    Remove-Item (Get-CurrentFile) -Force -ErrorAction SilentlyContinue
+    Write-Host "OK Removed account ($n). It was current; 'current' cleared - switch to another account to set it."
+  } else {
+    Write-Host "OK Removed account ($n)."
+  }
+  return $true
+}
+
+# sa remove <number>: confirm, then remove from the vault
+function Invoke-Remove([string[]]$rest) {
+  if (-not $rest -or $rest[0] -notmatch '^\d+$') { Write-Host "Usage: sa remove <number>"; return }
+  $n = [int]$rest[0]
+  if (-not (Test-Path (Get-AccountFile $n))) { Write-Host "X Account ($n) not found."; return }
+  $nm = Get-Name $n
+  $label = if ($nm) { " '$nm'" } else { '' }
+  $ans = (Read-Host "Remove account ($n)$label from the vault? (y/N)").Trim()
+  if ($ans -notmatch '^[yY]') { Write-Host "Cancelled."; return }
+  [void](Remove-Account $n)
+}
+
 # List the vault
 function Invoke-List {
   $nums = Get-AccountNumbers
@@ -353,13 +381,14 @@ if ($MyInvocation.InvocationName -ne '.') {
     '^\d+$'      { [void](Invoke-Switch ([int]$Command)); break }
     '^capture$'  { Invoke-Capture ($Rest -join ' '); break }
     '^name$'     { Invoke-SetName $Rest; break }
+    '^remove$|^rm$' { Invoke-Remove $Rest; break }
     '^list$'     { Invoke-List; break }
     '^status$'   { Invoke-Status; break }
     '^watch$'    { Invoke-Watch $Rest; break }
     '^$'         { Invoke-Menu; break }
     default {
       Write-Host "Unknown command: $Command"
-      Write-Host "Usage: switch-account [<number> | capture [name] | name <number> <name> | list | status | watch ...] (no args = menu)"
+      Write-Host "Usage: switch-account [<number> | capture [name] | name <number> <name> | remove <number> | list | status | watch ...] (no args = menu)"
     }
   }
 }

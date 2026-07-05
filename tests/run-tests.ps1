@@ -117,6 +117,29 @@ Run-Case 'name nonexistent number -> not written' {
   Assert-Equal (Get-Name 9) '' 'no name written for nonexistent number'
 }
 
+Run-Case 'remove account -> file gone, name dropped, current cleared' {
+  Invoke-Capture 'work' | Out-Null            # 1, current=1
+  Assert-True (Remove-Account 1) 'Remove-Account 1 returns true'
+  Assert-False (Test-Path (Get-AccountFile 1)) '1.json deleted'
+  Assert-Equal (Get-Name 1) '' 'name dropped'
+  Assert-Equal (Get-Current) $null 'current cleared (was 1)'
+}
+
+Run-Case 'remove keeps other accounts and their current' {
+  Invoke-Capture | Out-Null                   # 1
+  Set-ActiveCreds 'sk-ant-BBB'
+  Invoke-Capture | Out-Null                   # 2, current=2
+  Assert-True (Remove-Account 1) 'Remove-Account 1 returns true'
+  Assert-False (Test-Path (Get-AccountFile 1)) '1.json deleted'
+  Assert-True (Test-Path (Get-AccountFile 2)) '2.json kept'
+  Assert-Equal (Get-Current) 2 'current still 2 (not removed)'
+}
+
+Run-Case 'remove nonexistent -> false' {
+  Invoke-Capture | Out-Null
+  Assert-False (Remove-Account 9) 'Remove-Account 9 returns false'
+}
+
 Write-Host ""
 Write-Host ("Result: {0} passed, {1} failed" -f $script:Pass, $script:Fail) -ForegroundColor $(if ($script:Fail) { 'Red' } else { 'Green' })
 exit $(if ($script:Fail) { 1 } else { 0 })

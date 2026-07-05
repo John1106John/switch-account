@@ -43,6 +43,7 @@ sa capture personal
 | `sa status` | Dashboard: live usage per account (session% / weekly% / reset time / email) |
 | `sa capture [name]` | File the current `.credentials.json` as the next free number, optionally named |
 | `sa name 1 work` | Name / rename an account after the fact |
+| `sa remove 2` | Remove account 2 from the vault (asks to confirm) |
 | `sa watch [args]` | CLI only: wraps `claude`; on rate limit, auto-switch to the account with the most quota and resume with `--continue` |
 
 After switching, the **VS Code extension needs a Reload Window** (or reopen the conversation) to take effect; the CLI picks it up on next launch.
