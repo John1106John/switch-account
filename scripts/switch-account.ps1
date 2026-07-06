@@ -148,7 +148,24 @@ function Invoke-Switch([int]$n, [switch]$Quiet) {
   return $true
 }
 
-# Capture: file the live file as the next free number (max+1; 1 for an empty vault). Optional name.
+# Non-interactive core: copy the live file into slot n, set current, optionally set the name.
+function Save-ToSlot([int]$n, [string]$name = '') {
+  Initialize-CredsDir
+  Copy-Item (Get-ActiveFile) (Get-AccountFile $n) -Force
+  Set-Current $n
+  if ($name) { Set-Name $n $name }
+  return $true
+}
+
+# Non-interactive: append the current account as the next free number (max+1; 1 for empty). Returns the number.
+function Add-Account([string]$name = '') {
+  $nums = Get-AccountNumbers
+  $next = if ($nums.Count -gt 0) { ($nums | Measure-Object -Maximum).Maximum + 1 } else { 1 }
+  [void](Save-ToSlot $next $name)
+  return $next
+}
+
+# Capture (interactive): pick a slot to save the current account into - overwrite an existing number or open a new one.
 function Invoke-Capture([string]$name = '') {
   $active = Get-ActiveFile
   if (-not (Test-Path $active)) {
@@ -160,13 +177,35 @@ function Invoke-Capture([string]$name = '') {
     return
   }
   $nums = Get-AccountNumbers
+  $names = Get-Names
   $next = if ($nums.Count -gt 0) { ($nums | Measure-Object -Maximum).Maximum + 1 } else { 1 }
-  Initialize-CredsDir
-  Copy-Item $active (Get-AccountFile $next) -Force
-  Set-Current $next
-  if ($name) { Set-Name $next $name }
-  $suffix = if ($name) { " '$name'" } else { '' }
-  Write-Host "OK Registered current account as ($next)$suffix and set as current."
+
+  Write-Host "Save the current account into which slot?"
+  foreach ($n in $nums) {
+    $nm = if ($names.ContainsKey("$n")) { " " + $names["$n"] } else { '' }
+    Write-Host ("  [{0}]{1}" -f $n, $nm)
+  }
+  Write-Host ("  [{0}] (new)" -f $next)
+
+  $ans = (Read-Host "Slot number (Enter to cancel)").Trim()
+  if (-not $ans) { Write-Host "Cancelled."; return }
+  if ($ans -notmatch '^\d+$') { Write-Host "Please enter a numeric slot."; return }
+  $slot = [int]$ans
+  if ($slot -ne $next -and ($nums -notcontains $slot)) { Write-Host "X Invalid slot ($slot)."; return }
+
+  $finalName = $name
+  if ($nums -contains $slot) {
+    $cur = Get-Name $slot
+    $label = if ($cur) { " '$cur'" } else { '' }
+    $c = (Read-Host "Overwrite account ($slot)$label? (y/N)").Trim()
+    if ($c -notmatch '^[yY]') { Write-Host "Cancelled."; return }
+    if (-not $name) { $finalName = (Read-Host "Name (Enter to keep$label)").Trim() }
+  }
+
+  [void](Save-ToSlot $slot $finalName)
+  $shown = Get-Name $slot
+  $suffix = if ($shown) { " '$shown'" } else { '' }
+  Write-Host "OK Saved current account into ($slot)$suffix."
 }
 
 # Name/rename after the fact: sa name <number> <name>

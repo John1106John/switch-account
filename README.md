@@ -24,13 +24,11 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1   # register the `s
 
 ## Registering accounts
 
-Because everything shares `~/.claude`, running `/login` with an account writes its token into `.credentials.json`; then `capture` files it into the vault:
+Because everything shares `~/.claude`, running `/login` with an account writes its token into `.credentials.json`; then `capture` files it into the vault. `capture` opens a menu to pick a slot — open a new one, or overwrite an existing account (handy for refreshing a re-logged-in token, or fixing a duplicate):
 
 ```powershell
-# after /login with the first email:
-sa capture work
-# after /login with the second email:
-sa capture personal
+# after /login with an account:
+sa capture        # menu: pick [N] (new) to add, or an existing number to overwrite (confirms first)
 ```
 
 ## Usage
@@ -41,7 +39,7 @@ sa capture personal
 | `sa 2` | Switch straight to account 2 |
 | `sa list` | List the vault, names, and the current active account |
 | `sa status` | Dashboard: live usage per account (session% / weekly% / reset time / email) |
-| `sa capture [name]` | File the current `.credentials.json` as the next free number, optionally named |
+| `sa capture` | Interactive menu: pick a slot to save the current account into (new, or overwrite an existing number) |
 | `sa name 1 work` | Name / rename an account after the fact |
 | `sa remove 2` | Remove account 2 from the vault (asks to confirm) |
 | `sa watch [args]` | CLI only: wraps `claude`; on rate limit, auto-switch to the account with the most quota and resume with `--continue` |
