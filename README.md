@@ -2,7 +2,9 @@
 
 Switch between multiple Claude Code accounts by swapping only `.credentials.json`, while **sharing a single `~/.claude`**. Conversations, settings, and skills all carry over — switching an account only changes *identity and quota*. When you hit a rate limit it can auto-switch to the account with the **most quota left**, and `sa status` shows live usage for every account.
 
-> Windows PowerShell only. This is a Claude Code Skill whose essence is a set of CLI commands (`sa`).
+> Windows PowerShell only.
+>
+> **Not just a skill.** Although it ships as a Claude Code skill (so Claude can point you to it), it's really a standalone PowerShell CLI. Run `scripts/install.ps1` once and use `sa` directly in any terminal — Claude Code isn't required at runtime.
 
 ## Core idea
 
