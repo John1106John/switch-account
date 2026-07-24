@@ -1,6 +1,6 @@
 ---
 name: switch-account
-description: Switch between multiple Claude Code accounts by swapping only .credentials.json while sharing one ~/.claude (conversations, settings, and skills all carry over). On rate limit, auto-switch to the account with the most quota left and resume the same conversation with --continue; use `sa status` for a live usage dashboard. Windows PowerShell only. Triggers: switch-account, sa, switch account, change account, account rotation, rate limit switch account, credentials switch, multi-account credentials, resume claude on another account, usage dashboard.
+description: Switch between multiple Claude Code accounts by swapping only .credentials.json while sharing one ~/.claude (conversations, settings, and skills all carry over). Manual menu/number switching, account naming, and a live usage dashboard (`sa status`). Windows PowerShell only. For automatic rate-limit rotation, use a proxy-based tool like teamclaude instead. Triggers: switch-account, sa, switch account, change account, credentials switch, multi-account credentials, claude usage dashboard.
 ---
 
 # switch-account
@@ -39,18 +39,17 @@ sa status         # dashboard: live usage per account (session% / weekly% / rese
 sa capture        # interactive menu: pick a slot to save the current account into (new, or overwrite an existing number)
 sa name 1 work    # name/rename an account after the fact
 sa remove 2       # remove account 2 from the vault (asks to confirm)
-sa watch [args]   # CLI only: wrap claude; on rate limit auto-switch to the account with the most quota and --continue
 ```
 
 Names are stored in `~/.claude/.account-creds/names.json` (UTF-8). `list` and the menu show labels like `[1] work` to tell accounts apart.
 
-After switching, the **VS Code extension needs a Reload Window** (or reopen the chat) to take effect; the CLI picks it up on next launch. Only `sa watch` achieves zero-touch rotation in the CLI.
+After switching, restart Claude Code to pick up the new account: the CLI re-reads credentials on next launch; the VS Code extension needs a **Reload Window** (or reopen the chat).
 
 ## Limitations
 
 - **Sequential switching, not concurrent**: `.credentials.json` is a single machine-wide file, so switching makes every running Claude conversation become the new account on its next refresh. For true parallel multi-account use, use separate `CLAUDE_CONFIG_DIR` values instead.
-- **`sa watch` is CLI-only**: the VS Code extension isn't launched by the wrapper, so its exit can't be intercepted for auto-rotation.
-- **Non-public usage endpoint**: `sa status` and auto-rotation use Claude Code's internal OAuth endpoint (`/api/oauth/usage`), which may break if Anthropic changes it. `sa watch` still switches only *after* hitting the limit, not preemptively.
+- **Manual switching only — no auto-rotation**: interactive Claude does *not* exit when rate-limited (it stays in the TUI), so a CLI wrapper has no reliable trigger to hook. For **automatic** quota-based rotation with zero interruption, use a proxy-based tool like [teamclaude](https://github.com/KarpelesLab/teamclaude) instead (it injects each account's token at the proxy, so Claude never has to restart).
+- **Non-public usage endpoint**: `sa status` uses Claude Code's internal OAuth endpoint (`/api/oauth/usage`), which may break if Anthropic changes it.
 
 ## Tests
 

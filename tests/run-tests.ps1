@@ -101,13 +101,6 @@ Run-Case 'Save-ToSlot with a new name updates the name' {
   Assert-Equal (Get-Name 1) 'backup' 'name updated'
 }
 
-Run-Case 'next number wrap around -> highest wraps to start' {
-  Initialize-CredsDir
-  1..3 | ForEach-Object { Set-ActiveCreds "sk-ant-$_"; Copy-Item (Get-ActiveFile) (Get-AccountFile $_) -Force }
-  Assert-Equal (Get-NextNumber 3) 1 'next after 3 = 1'
-  Assert-Equal (Get-NextNumber 1) 2 'next after 1 = 2'
-}
-
 Run-Case 'switch to nonexistent number -> false and live file unchanged' {
   Add-Account | Out-Null
   Assert-False (Invoke-Switch 9) 'Invoke-Switch 9 returns false'

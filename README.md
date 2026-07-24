@@ -1,6 +1,6 @@
 # switch-account
 
-Switch between multiple Claude Code accounts by swapping only `.credentials.json`, while **sharing a single `~/.claude`**. Conversations, settings, and skills all carry over — switching an account only changes *identity and quota*. When you hit a rate limit it can auto-switch to the account with the **most quota left**, and `sa status` shows live usage for every account.
+Switch between multiple Claude Code accounts by swapping only `.credentials.json`, while **sharing a single `~/.claude`**. Conversations, settings, and skills all carry over — switching an account only changes *identity and quota*. `sa status` shows live usage for every account. Switching is **manual** — for fully automatic rate-limit rotation, see [teamclaude](https://github.com/KarpelesLab/teamclaude).
 
 > Windows PowerShell only.
 >
@@ -44,15 +44,14 @@ sa capture        # menu: pick [N] (new) to add, or an existing number to overwr
 | `sa capture` | Interactive menu: pick a slot to save the current account into (new, or overwrite an existing number) |
 | `sa name 1 work` | Name / rename an account after the fact |
 | `sa remove 2` | Remove account 2 from the vault (asks to confirm) |
-| `sa watch [args]` | CLI only: wraps `claude`; on rate limit, auto-switch to the account with the most quota and resume with `--continue` |
 
 After switching, the **VS Code extension needs a Reload Window** (or reopen the conversation) to take effect; the CLI picks it up on next launch.
 
 ## Limitations
 
 - **Sequential switching, not concurrent**: `.credentials.json` is a single machine-wide file, so switching makes every running Claude conversation become the new account on its next refresh. For true parallel multi-account use, use separate `CLAUDE_CONFIG_DIR` values instead.
-- **`sa watch` is CLI-only**: the VS Code extension isn't launched by the wrapper, so its exit can't be intercepted for auto-rotation.
-- **Non-public usage endpoint**: `sa status` and auto-rotation rely on Claude Code's internal OAuth endpoint (`/api/oauth/usage`), which may break if Anthropic changes it.
+- **Manual switching only — no auto-rotation**: interactive Claude does *not* exit when rate-limited (it stays in the TUI), so a CLI wrapper has no reliable trigger to hook. For **automatic** quota-based rotation with zero interruption, use a proxy-based tool like [teamclaude](https://github.com/KarpelesLab/teamclaude) (it injects each account's token at the proxy, so Claude never has to restart).
+- **Non-public usage endpoint**: `sa status` relies on Claude Code's internal OAuth endpoint (`/api/oauth/usage`), which may break if Anthropic changes it.
 
 ## Security
 
@@ -66,4 +65,4 @@ powershell -File tests/run-tests.ps1   # zero-dependency (no Pester), runs entir
 
 ## Credits
 
-The concept comes from `ccc` (a pair of bash skills for seamless cross-account switching). This project rewrites it for **Windows PowerShell + shared credentials**, adding a usage dashboard and "switch to the account with the most quota" auto-rotation.
+The concept comes from `ccc` (a pair of bash skills for seamless cross-account switching). This project rewrites it for **Windows PowerShell + shared credentials**, adding a live usage dashboard and named account slots. For fully automatic proxy-based rotation, see [teamclaude](https://github.com/KarpelesLab/teamclaude).

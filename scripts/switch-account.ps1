@@ -272,15 +272,6 @@ function Invoke-Menu {
   [void](Invoke-Switch ([int]$ans))
 }
 
-# Next number (wrap around): the next existing number after current, wrapping to the start
-function Get-NextNumber([int]$cur) {
-  $nums = Get-AccountNumbers
-  if ($nums.Count -eq 0) { return $null }
-  $after = $nums | Where-Object { $_ -gt $cur }
-  if ($after) { return ($after | Select-Object -First 1) }
-  return $nums[0]
-}
-
 # ── Usage dashboard ──────────────────────────────────────────────────────────
 # Query Anthropic usage/profile with each account's own OAuth token.
 # Note: this is Claude Code's internal non-public endpoint; may break if Anthropic changes it.
@@ -336,83 +327,6 @@ function Invoke-Status {
   Write-Host ""
 }
 
-# ── Auto-rotation (CLI only) ─────────────────────────────────────────────────
-$RateLimitPattern = 'rate.?limit|too many requests|429|usage.?limit|plan limit|over_capacity'
-
-# Detect rate limit from the tail of the most recently modified session jsonl under <root>/projects
-function Test-RateLimited {
-  $projects = Join-Path (Get-Root) 'projects'
-  if (-not (Test-Path $projects)) { return $false }
-  $latest = Get-ChildItem $projects -Recurse -Filter '*.jsonl' -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-  if (-not $latest) { return $false }
-  $tail = Get-Content $latest.FullName -Tail 30 -ErrorAction SilentlyContinue
-  return [bool]($tail -match $RateLimitPattern)
-}
-
-# Pick the account with the most quota (excluding `exclude`): among those below both session/weekly
-# limits, the one with the lowest session usage.
-# Returns @{ Best = number or $null; AnyQueried = whether at least one account was queried successfully }.
-function Get-BestAccount([int]$exclude) {
-  $best = $null; $bestUtil = [double]999; $anyQueried = $false
-  foreach ($n in Get-AccountNumbers) {
-    if ($n -eq $exclude) { continue }
-    $tok = Get-AccountToken $n
-    if (-not $tok) { continue }
-    try {
-      $u = Invoke-OAuthApi $tok '/api/oauth/usage'
-      $anyQueried = $true
-      $s = [double]$u.five_hour.utilization
-      $w = [double]$u.seven_day.utilization
-      if ($s -ge 100 -or $w -ge 100) { continue }   # maxed out, skip
-      if ($s -lt $bestUtil) { $bestUtil = $s; $best = $n }
-    } catch { continue }
-  }
-  return @{ Best = $best; AnyQueried = $anyQueried }
-}
-
-function Invoke-Watch([string[]]$claudeArgs) {
-  $tried = @{}
-  $first = $true
-  while ($true) {
-    $runArgs = @()
-    if ($claudeArgs) { $runArgs += $claudeArgs }
-    if (-not $first) { $runArgs = @('--continue') + $runArgs }  # resume the same conversation after switching
-
-    & claude @runArgs
-    $code = $LASTEXITCODE
-    $first = $false
-
-    if ($code -eq 0) { exit 0 }
-    # PowerShell has no standard 130; Ctrl-C usually lets the child exit on its own - only act on rate limit here
-    if (-not (Test-RateLimited)) { exit $code }
-
-    $cur = Get-Current
-    if ($null -eq $cur) { Write-Host "! Hit rate limit, but current is unknown; cannot auto-rotate. Use list/switch manually."; exit $code }
-    $tried[$cur] = $true
-
-    # Prefer the account with the most quota; fall back to sequential rotation if the usage API is unreachable.
-    $sel = Get-BestAccount $cur
-    if ($sel.Best) {
-      $next = $sel.Best
-    } elseif ($sel.AnyQueried) {
-      Write-Host ""
-      Write-Host "! All accounts are maxed out. Time for a break."
-      exit $code
-    } else {
-      $next = Get-NextNumber $cur
-      if ($null -eq $next -or $tried.ContainsKey($next)) {
-        Write-Host ""
-        Write-Host "! No usable account (usage query failed and rotated a full loop)."
-        exit $code
-      }
-    }
-    Write-Host ""
-    Write-Host "! Account ($cur) hit rate limit -> auto-switching to ($next) with the most quota..."
-    if (-not (Invoke-Switch $next -Quiet)) { exit $code }
-  }
-}
-
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 # When dot-sourced (. switch-account.ps1) InvocationName is '.'; only define functions for tests, don't dispatch.
 if ($MyInvocation.InvocationName -ne '.') {
@@ -423,11 +337,10 @@ if ($MyInvocation.InvocationName -ne '.') {
     '^remove$|^rm$' { Invoke-Remove $Rest; break }
     '^list$'     { Invoke-List; break }
     '^status$'   { Invoke-Status; break }
-    '^watch$'    { Invoke-Watch $Rest; break }
     '^$'         { Invoke-Menu; break }
     default {
       Write-Host "Unknown command: $Command"
-      Write-Host "Usage: switch-account [<number> | capture [name] | name <number> <name> | remove <number> | list | status | watch ...] (no args = menu)"
+      Write-Host "Usage: switch-account [<number> | capture [name] | name <number> <name> | remove <number> | list | status] (no args = menu)"
     }
   }
 }
