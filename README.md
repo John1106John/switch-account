@@ -45,7 +45,7 @@ sa capture        # menu: pick [N] (new) to add, or an existing number to overwr
 | `sa name 1 work` | Name / rename an account after the fact |
 | `sa remove 2` | Remove account 2 from the vault (asks to confirm) |
 
-After switching, the **VS Code extension needs a Reload Window** (or reopen the conversation) to take effect; the CLI picks it up on next launch.
+After switching, **no restart is needed on Windows** — Claude Code re-reads `.credentials.json` whenever it changes, so the new account takes effect on your **next message**, in both the CLI and the VS Code extension. (This is a Windows behavior; on macOS the Keychain is cached, which is why this tool targets Windows.)
 
 ## Limitations
 

@@ -43,7 +43,7 @@ sa remove 2       # remove account 2 from the vault (asks to confirm)
 
 Names are stored in `~/.claude/.account-creds/names.json` (UTF-8). `list` and the menu show labels like `[1] work` to tell accounts apart.
 
-After switching, restart Claude Code to pick up the new account: the CLI re-reads credentials on next launch; the VS Code extension needs a **Reload Window** (or reopen the chat).
+After switching, **no restart is needed on Windows**: Claude Code re-reads `.credentials.json` whenever it changes, so the new account takes effect on your **next message** — in both the CLI and the VS Code extension. (This is a Windows behavior; on macOS the Keychain is cached, which is why this tool targets Windows.)
 
 ## Limitations
 
