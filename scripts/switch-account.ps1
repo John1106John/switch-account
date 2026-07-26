@@ -143,7 +143,7 @@ function Invoke-Switch([int]$n, [switch]$Quiet) {
   Set-ActiveAccount $n
   if (-not $Quiet) {
     Write-Host "OK Switched to account ($n)."
-    Write-Host "   VS Code extension: Reload Window (or reopen the chat) to take effect; CLI picks it up on next launch."
+    Write-Host "   No restart needed: Claude Code re-reads the credentials file, so it takes effect on your next message."
   }
   return $true
 }
